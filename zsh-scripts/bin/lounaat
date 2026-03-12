@@ -13,7 +13,7 @@ from rich.console import Console
 from rich.text import Text
 import argparse
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 @dataclass
 class MenuLine:
@@ -93,15 +93,7 @@ DIET_COLOURS = {
     "v": ("V", "bright_cyan"),
 }
 
-FINNISH_WEEKDAYS = [
-    "Maanantai",
-    "Tiistai",
-    "Keskiviikko",
-    "Torstai",
-    "Perjantai",
-    "Lauantai",
-    "Sunnuntai"
-]
+WEEKDAYS = ["maanantai", "tiistai", "keskiviikko", "torstai", "perjantai", "lauantai", "sunnuntai"]
 
 def parse_distance(text: str) -> int:
     return int(float(text.replace("km", "").strip()) * 1000) if "km" in text else int(text.replace("m", "").strip())
@@ -109,16 +101,18 @@ def parse_distance(text: str) -> int:
 def extract_diets(tag: BeautifulSoup) -> List[str]:
     return [a["href"].strip("#").lower() for a in tag.select("a.diet")]
 
-def fetch_lunch_items(max_distance: int) -> List[LunchItem]:
+def fetch_lunch_items(max_distance: int, weekday: Optional[int] = None) -> List[LunchItem]:
     results: List[LunchItem] = []
 
-    # Get current weekday (0=Monday, 6=Sunday)
-    current_day = datetime.now().weekday()
-    # lounaat.info uses 1-5 for Mon-Fri, default to Monday for weekends
-    if current_day < 5:  # Monday to Friday
-        day_param = str(current_day + 1)
-    else:  # Saturday or Sunday
-        day_param = "1"  # Default to Monday
+    # lounaat.info uses 1-7 for Mon-Sun
+    if weekday is not None:
+        day_param = str(weekday)
+    else:
+        current_day = datetime.now().weekday()
+        if current_day < 5:  # Monday to Friday
+            day_param = str(current_day + 1)
+        else:  # Saturday or Sunday - default to Monday
+            day_param = "1"
 
     for page in range(4):
         params = {
@@ -213,20 +207,25 @@ def maybe_pager():
     else:
         yield sys.stdout
 
-def print_lunches(lunches: List[LunchItem]):
+def print_lunches(lunches: List[LunchItem], requested_weekday: Optional[int] = None):
     with maybe_pager() as output:
         console = Console(file=output, force_terminal=True, color_system="truecolor")
 
-        # Display current date and weekday
         now = datetime.now()
-        weekday = FINNISH_WEEKDAYS[now.weekday()]
         date_str = now.strftime("%-d.%-m.%Y")
 
-        # If it's weekend, show which day's menu we're displaying
-        if now.weekday() >= 5:  # Saturday or Sunday
-            console.print(f"[bold yellow]{weekday} {date_str} - Näytetään maanantain lounaslista[/bold yellow]\n")
+        if requested_weekday is not None:
+            requested_day_name = WEEKDAYS[requested_weekday - 1]
+            days_diff = (requested_weekday - 1) - now.weekday()
+            target_date = now + timedelta(days=days_diff)
+            target_date_str = target_date.strftime("%-d.%-m.")
+            console.print(f"[bold yellow]Lounaslista: {requested_day_name} {target_date_str}[/bold yellow]\n")
+        elif now.weekday() >= 5:  # Saturday or Sunday
+            weekday = WEEKDAYS[now.weekday()]
+            console.print(f"[bold yellow]{weekday.capitalize()} {date_str} - Lounaslista: maanantai[/bold yellow]\n")
         else:
-            console.print(f"[bold yellow]{weekday} {date_str}[/bold yellow]\n")
+            weekday = WEEKDAYS[now.weekday()]
+            console.print(f"[bold yellow]{weekday.capitalize()} {date_str}[/bold yellow]\n")
 
         for lunch in lunches:
             dist_label = f"{lunch.distance_m} m" if lunch.distance_is_walking else f"~{lunch.distance_m} m"
@@ -254,10 +253,16 @@ def print_lunches(lunches: List[LunchItem]):
 def main():
     parser = argparse.ArgumentParser(description="Fetch Oulu lunches from lounaat.info")
     parser.add_argument("--max-distance", type=int, default=1500, help="Max distance in metres (default: 1500)")
+
+    day_group = parser.add_mutually_exclusive_group()
+    weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday"]
+    for i, day in enumerate(weekdays, start=1):
+        day_group.add_argument(f"--{day}", f"--{day[:3]}", action="store_const", const=i, dest="weekday", help=f"Show {day.capitalize()}'s menu")
+
     args = parser.parse_args()
 
-    lunches = fetch_lunch_items(args.max_distance)
-    print_lunches(lunches)
+    lunches = fetch_lunch_items(args.max_distance, weekday=args.weekday)
+    print_lunches(lunches, requested_weekday=args.weekday)
 
 if __name__ == "__main__":
     main()
