@@ -3,12 +3,7 @@ PROMPT="[prompt not set, zsh rcs failed? fix the bugs, run refreshrc to fix]
 
 alias refreshrc='. ~/.zsh/scripts/advancedrc'
 
-if [[ -z "$ZSH" ]]
-then
-    ZSH="$HOME/.zsh"
-fi
-
-export ZSH
+export ZSH="$HOME/.zsh"
 
 source "$ZSH/etc/oh-my-zsh-settings"
 
